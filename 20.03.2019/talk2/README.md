@@ -1,5 +1,7 @@
 ## Outline
 
+[Recording of the talk](https://youtu.be/H9k9F81Esmw?t=1475)
+
 This is a talk that could be subdivided into 2 parts:
 
 1. How to organize your IaC solution workflow\lifecycle
@@ -22,4 +24,5 @@ This is a talk that could be subdivided into 2 parts:
 5. [Fabrikate resulting configuration](https://github.com/4c74356b41/fabrikate-generated)
 6. [Fabrikate build pipeline definition](https://dev.azure.com/4c74356b41/_git/fabrikate?path=%2Fazure-pipeline.yml&version=GBmaster)
 7. [Bedrock](https://github.com/Microsoft/bedrock) Fabrikate quick start sample with Terraform
-5. [Pulumi](https://pulumi.io/)
+8. [Sample Istio fabrikate configuration](https://github.com/4c74356b41/fabrikate-istio)
+9. [Pulumi](https://pulumi.io/)
