@@ -6,4 +6,4 @@ Each meetup content
 
 ## Talks
 
-1. [20.03.2019 - Dodo Pizza](20.03.2019)
+1. [20.03.2019 - Dodo Pizza](20.03.2019). [Recording](https://www.youtube.com/watch?v=H9k9F81Esmw).
