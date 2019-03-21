@@ -1,0 +1,48 @@
+[
+    {
+        "type": "Microsoft.TerraformOSS/providerregistrations",
+        "name": "[parameters('resourceName')]",
+        "apiVersion": "2018-05-01",
+        "location": "northeurope",
+        "properties": {
+            "providertype": "kubernetes",
+            "settings": {
+                "inline_config": "[Base64ToString(ListCredential(resourceId('Microsoft.ContainerService/managedClusters/accessProfiles', parameters('resourceName'),'clusterAdmin'), '2017-08-31').properties.kubeConfig)]"
+            }
+        }
+    },
+    {
+        "type": "Microsoft.TerraformOSS/resources",
+        "name": "NginxPod",
+        "apiVersion": "2018-05-01",
+        "location": "northeurope",
+        "properties": {
+            "providerId": "[resourceId('Microsoft.TerraformOSS/providerregistrations', parameters('resourceName'))]",
+            "resourcetype": "kubernetes_pod",
+            "settings": {
+                "metadata": [
+                    {
+                        "name": "nginx",
+                        "labels": {
+                            "App": "nginx"
+                        }
+                    }
+                ],
+                "spec": [
+                    {
+                        "container": {
+                            "image": "nginx:1.7.8",
+                            "name": "nginx",
+                            "port": {
+                                "container_port": 80
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        "dependsOn": [
+            "[resourceId('Microsoft.TerraformOSS/providerregistrations', parameters('resourceName'))]"
+        ]
+    }
+]

@@ -1,0 +1,29 @@
+resources:
+  containers:
+  - container: tests
+    image: my/container:tests
+
+jobs:
+  - job: run_tests
+    container: tests
+    pool:
+      vmImage: 'Ubuntu-16.04'
+    steps:
+    # actual build
+    - script: cd ./deployment/python && ./pylint_proxy.py --fail-under=9.2 python --rcfile=.pylintrc
+      displayName: "Run pylint"
+    - script: cd ./deployment && PYTHONPATH=$(pwd) pytest python/tests --type test --junitxml=test_everything.xml
+      displayName: "Run pytest"
+
+    # gather artifacts
+    - task: PublishTestResults@2
+      inputs:
+        testResultsFiles: '**/test_*.xml'
+        searchFolder: '$(Build.Repository.LocalPath)/deployment'
+      condition: always()
+    - task: PublishBuildArtifacts@1
+      inputs:
+        pathtoPublish: '$(Build.Repository.LocalPath)/deployment/logs'
+        artifactName: 'logs' 
+        publishLocation: 'Container'
+      condition: always()
