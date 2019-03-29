@@ -1,0 +1,81 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "environmentReference": {
+            "type": "secureObject"
+        },
+        "networkReference": {
+            "type": "array"
+        },
+        "vmReference": {
+            "type": "array"
+        }
+    },
+    "variables": {
+        "addressSpace": "[parameters('networkReference')[2].subnets[0].addressSpacePrefix]",
+        "substring": "[substring(variables('addressSpace'), 0, sub(length(variables('addressSpace')), 4))]",
+        "adPDCNicIPAddress": "[concat(variables('substring'), 4)]",
+        "adBDCNicIPAddress": "[concat(variables('substring'), 5)]",
+        "dnsSettings": [
+            "[variables('adPDCNicIPAddress')]",
+            "[variables('adBDCNicIPAddress')]"
+        ]
+    },
+    "resources": [
+        {
+            "apiVersion": "2016-09-01",
+            "name": "[concat('vnets-nested-', copyIndex())]",
+            "type": "Microsoft.Resources/deployments",
+            "copy": {
+                "name": "deployvnets",
+                "count": "[length(parameters('networkReference'))]"
+            },
+            "properties": {
+                "mode": "Incremental",
+                "templateLink": {
+                    "uri": "[concat(parameters('environmentReference').deployment.buildingBlocksEndpoint, 'networking/nested_vnet.json')]",
+                    "contentVersion": "1.0.0.0"
+                },
+                "parameters": {
+                    "bossObject": {
+                        "value": "[parameters('networkReference')[copyIndex()]]"
+                    },
+                    "dnsSettings": {
+                        "value": "[variables('dnsSettings')]"
+                    },
+                    "environmentReference": {
+                        "value": "[parameters('environmentReference')]"
+                    }
+                }
+            }
+        },
+        {
+            "apiVersion": "2016-09-01",
+            "name": "[concat('peerings-nested-', copyIndex())]",
+            "type": "Microsoft.Resources/deployments",
+            "copy": {
+                "name": "peering",
+                "count": "[length(parameters('networkReference'))]"
+            },
+            "properties": {
+                "mode": "Incremental",
+                "templateLink": {
+                    "uri": "[concat(parameters('environmentReference').deployment.buildingBlocksEndpoint, 'networking/nested_peerings.json')]",
+                    "contentVersion": "1.0.0.0"
+                },
+                "parameters": {
+                    "bossObject": {
+                        "value": "[parameters('networkReference')[copyIndex()]]"
+                    },
+                    "environmentReference": {
+                        "value": "[parameters('environmentReference')]"
+                    }
+                }
+            },
+            "dependsOn": [
+                "deployvnets"
+            ]
+        }
+    ]
+}

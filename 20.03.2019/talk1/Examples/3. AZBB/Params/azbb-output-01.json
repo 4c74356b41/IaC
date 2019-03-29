@@ -1,0 +1,44 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "virtualNetworks": {
+            "value": [
+                {
+                    "name": "simple-vnet",
+                    "tags": {},
+                    "resourceGroupName": "3.AZBB",
+                    "subscriptionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                    "location": "westus",
+                    "properties": {
+                        "addressSpace": {
+                            "addressPrefixes": [
+                                "10.0.0.0/16"
+                            ]
+                        },
+                        "subnets": [
+                            {
+                                "name": "default",
+                                "properties": {
+                                    "addressPrefix": "10.0.1.0/24"
+                                }
+                            }
+                        ],
+                        "dhcpOptions": {
+                            "dnsServers": []
+                        }
+                    }
+                }
+            ]
+        },
+        "virtualNetworkPeerings": {
+            "value": []
+        },
+        "deploymentContext": {
+            "value": {
+                "parentTemplateUniqueString": "bb-01-vnet",
+                "sasToken": ""
+            }
+        }
+    }
+}

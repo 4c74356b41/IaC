@@ -1,0 +1,234 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2014-04-01-preview/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "environmentReference": {
+            "type": "secureObject"
+        },
+        "networkReference": {
+            "type": "array"
+        },
+        "vmReference": {
+            "type": "array"
+        }
+    },
+    "variables": {
+        "solutionTypes": [
+            "AntiMalware",
+            "AzureActivity",
+            "AzureAutomation",
+            "AzureNSGAnalytics",
+            "ChangeTracking",
+            "KeyVaultAnalytics",
+            "ServiceMap",
+            "Security",
+            "SQLAssessment",
+            "Updates"
+        ],
+        "paasPrefix": "[concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env)]",
+        "kvName": "[concat(variables('paasPrefix'), '-kv')]",
+        "bkpName": "[concat(variables('paasPrefix'), '-bkp')]",
+        "automationName": "[concat(variables('paasPrefix'), '-automation')]",
+        "omsName": "[concat(variables('paasPrefix'), '-oms')]"
+    },
+    "resources": [
+        {
+            "apiVersion": "2016-12-01",
+            "name": "[concat(parameters('environmentReference').deployment.prefix, parameters('environmentReference').deployment.env, 'diagstor')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Storage/storageAccounts",
+            "sku": {
+                "name": "Standard_LRS"
+            },
+            "kind": "Storage"
+        },
+        {
+            "apiVersion": "2016-10-01",
+            "name": "[variables('kvName')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.KeyVault/vaults",
+            "dependsOn": [
+                "[concat('Microsoft.OperationalInsights/workspaces/', variables('omsName'))]"
+            ],
+            "properties": {
+                "enabledForDeployment": false,
+                "enabledForTemplateDeployment": false,
+                "enabledForDiskEncryption": true,
+                "tenantId": "[subscription().tenantId]",
+                "sku": {
+                    "name": "premium",
+                    "family": "A"
+                },
+                "accessPolicies": [
+                    {
+                        "tenantId": "[subscription().tenantId]",
+                        "objectId": "[parameters('environmentReference').deployment.azureApplicationServicePrincipal]",
+                        "permissions": {
+                            "keys": [
+                                "list",
+                                "get",
+                                "wrapKey",
+                                "unwrapKey"
+                            ],
+                            "secrets": [
+                                "set"
+                            ],
+                            "certificates": []
+                        }
+                    },
+                    {
+                        "tenantId": "[subscription().tenantId]",
+                        "objectId": "2e7c0df0-13d2-4346-9c33-44c7bbb17409",
+                        "permissions": {
+                            "keys": [
+                                "get",
+                                "list",
+                                "backup"
+                            ],
+                            "secrets": [
+                                "get",
+                                "list",
+                                "backup"
+                            ]
+                        }
+                    }
+                ]
+            },
+            "resources": [
+                {
+                    "apiVersion": "2017-05-01-preview",
+                    "name": "Microsoft.Insights/service",
+                    "type": "providers/diagnosticSettings",
+                    "dependsOn": [
+                        "[concat('Microsoft.KeyVault/vaults/',variables('kvName'))]"
+                    ],
+                    "properties": {
+                        "WorkspaceId": "[resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-operations'),'microsoft.operationalinsights/workspaces',variables('omsName'))]",
+                        "logs": [
+                            {
+                                "category": "AuditEvent",
+                                "enabled": true,
+                                "retentionPolicy": {
+                                    "days": 7,
+                                    "enabled": true
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "apiVersion": "2015-11-01-preview",
+            "name": "[variables('omsName')]",
+            "location": "eastus",
+            "type": "Microsoft.OperationalInsights/workspaces",
+            "properties": {
+                "sku": {
+                    "Name": "Free"
+                }
+            }
+        },
+        {
+            "apiVersion": "2015-01-01-preview",
+            "name": "[variables('automationName')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Automation/automationAccounts",
+            "dependsOn": [
+                "[concat('Microsoft.OperationalInsights/workspaces/' , variables('omsName'))]"
+            ],
+            "properties": {
+                "sku": {
+                    "name": "Basic"
+                }
+            },
+            "resources": [
+                {
+                    "apiVersion": "2017-05-01-preview",
+                    "name": "Microsoft.Insights/service",
+                    "type": "providers/diagnosticSettings",
+                    "dependsOn": [
+                        "[concat('Microsoft.Automation/automationAccounts/',variables('automationName'))]"
+                    ],
+                    "properties": {
+                        "WorkspaceId": "[resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-operations'),'microsoft.operationalinsights/workspaces',variables('omsName'))]",
+                        "logs": [
+                            {
+                                "category": "JobLogs",
+                                "enabled": true,
+                                "retentionPolicy": {
+                                    "days": 7,
+                                    "enabled": true
+                                }
+                            },
+                            {
+                                "category": "JobStreams",
+                                "enabled": true,
+                                "retentionPolicy": {
+                                    "days": 7,
+                                    "enabled": true
+                                }
+                            },
+                            {
+                                "category": "JobLogs",
+                                "enabled": true,
+                                "retentionPolicy": {
+                                    "days": 7,
+                                    "enabled": true
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "id": "[concat(resourceGroup().id, '/providers/Microsoft.OperationsManagement/solutions/', variables('solutionTypes')[copyIndex()], '(', variables('omsName'), ')')]",
+            "apiVersion": "2015-11-01-preview",
+            "name": "[concat(variables('solutionTypes')[copyIndex()], '(', variables('omsName'), ')')]",
+            "location": "eastus",
+            "type": "Microsoft.OperationsManagement/solutions",
+            "dependsOn": [
+                "[concat('Microsoft.OperationalInsights/workspaces/' , variables('omsName'))]"
+            ],
+            "copy": {
+                "name": "solutionsCopy",
+                "count": "[length(variables('solutionTypes'))]"
+            },
+            "plan": {
+                "name": "[concat(variables('solutionTypes')[copyIndex()], '(', variables('omsName'), ')')]",
+                "product": "[concat('OMSGallery/', variables('solutionTypes')[copyIndex()])]",
+                "promotionCode": "",
+                "publisher": "Microsoft"
+            },
+            "properties": {
+                "workspaceResourceId": "[concat(resourceGroup().id, '/providers/Microsoft.OperationalInsights/workspaces/', variables('omsName'))]"
+            }
+        },
+        {
+            "id": "[concat(resourceGroup().id, '/providers/Microsoft.OperationalInsights/workspaces/', variables('omsName'), '/datasources/', subscription().subscriptionId)]",
+            "apiVersion": "2015-11-01-preview",
+            "name": "[concat(variables('omsName'), '/', subscription().subscriptionId)]",
+            "location": "eastus",
+            "type": "Microsoft.OperationalInsights/workspaces/datasources",
+            "kind": "AzureActivityLog",
+            "dependsOn": [
+                "[concat('Microsoft.OperationalInsights/workspaces/' , variables('omsName'))]"
+            ],
+            "properties": {
+                "linkedResourceId": "[concat(subscription().Id, '/providers/microsoft.insights/eventTypes/management')]"
+            }
+        },
+        {
+            "apiVersion": "2016-06-01",
+            "name": "[variables('bkpName')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.RecoveryServices/vaults",
+            "sku": {
+                "name": "RS0",
+                "tier": "Standard"
+            },
+            "properties": {}
+        }
+    ]
+}

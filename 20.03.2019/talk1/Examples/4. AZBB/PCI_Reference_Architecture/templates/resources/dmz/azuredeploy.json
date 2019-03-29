@@ -1,0 +1,308 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "environmentReference": {
+            "type": "secureObject"
+        },
+        "networkReference": {
+            "type": "array"
+        },
+        "vmReference": {
+            "type": "array"
+        }
+    },
+    "variables": {
+        "ngf1": "[concat('#!/bin/bash\n\n', '/opt/phion/bin/editconf -f /opt/phion/config/configroot/boxnet.conf -d REFS -s gendev_eth0\n', '/opt/phion/bin/editconf -f /opt/phion/config/configroot/boxnet.conf -d RENAMED -s gendev_eth0\n')]",
+        "ngf2": "[concat('/opt/phion/bin/cloud-setmip ', variables('ngfIp'), ' 24 ', variables('subnetGateway'))]",
+        "ngfData": "[base64(concat(variables('ngf1'), variables('ngf2'), ' >> /tmp/setmip.log'))]",
+        "addressSpace": "[parameters('networkReference')[0].subnets[0].addressSpacePrefix]",
+        "substring": "[substring(variables('addressSpace'), 0, sub(length(variables('addressSpace')), 4))]",
+        "subnetGateway": "[concat(variables('substring'), 1)]",
+        "ngfIp": "[concat(variables('substring'), 4)]",
+        "wafIp": "[concat(variables('substring'), 5)]",
+        "vnetID": "[resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-networking'), 'Microsoft.Network/virtualNetworks', concat(parameters('environmentReference').deployment.env, '-dmz'))]",
+        "subnetRef": "[concat(variables('vnetID'),'/subnets/dmzSubnet')]",
+        "loadBalancerID": "[resourceId('Microsoft.Network/loadBalancers', concat(parameters('environmentReference').deployment.env, '-waf-lb'))]",
+        "lbProbeID": "[concat(variables('loadBalancerID'),'/probes/barracudaprobe')]",
+        "frontEndIPConfigID": "[concat(variables('loadBalancerID'),'/frontendIPConfigurations/LoadBalancerFrontEnd')]",
+        "lbPoolID": "[concat(variables('loadBalancerID'),'/backendAddressPools/loadBalancerBackEnd')]"
+    },
+    "resources": [
+        {
+            "apiVersion": "2017-06-01",
+            "name": "[concat(parameters('environmentReference').deployment.env, '-ngf-routeTable')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Network/routeTables",
+            "properties": {
+                "routes": [
+                    {
+                        "name": "defaultRouteViaNGF",
+                        "properties": {
+                            "addressPrefix": "0.0.0.0/0",
+                            "nextHopType": "VirtualAppliance",
+                            "nextHopIpAddress": "[variables('ngfIp')]"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "apiVersion": "2016-04-30-preview",
+            "name": "[concat(parameters('environmentReference').deployment.env, '-waf-avSet')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Compute/availabilitySets",
+            "properties": {
+                "platformFaultDomainCount": 2,
+                "platformUpdateDomainCount": 5,
+                "managed": true
+            }
+        },
+        {
+            "apiVersion": "2016-04-30-preview",
+            "name": "[concat(parameters('environmentReference').deployment.env, '-ngf-avSet')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Compute/availabilitySets",
+            "properties": {
+                "platformFaultDomainCount": 2,
+                "platformUpdateDomainCount": 5,
+                "managed": true
+            }
+        },
+        {
+            "apiVersion": "2016-04-30-preview",
+            "name": "[concat(parameters('environmentReference').deployment.env, '-waf')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Compute/virtualMachines",
+            "dependsOn": [
+                "[concat('Microsoft.Network/networkInterfaces/', concat(parameters('environmentReference').deployment.env, '-waf-nic'))]",
+                "[concat('Microsoft.Compute/availabilitySets/', concat(parameters('environmentReference').deployment.env, '-waf-avSet'))]"
+            ],
+            "properties": {
+                "osProfile": {
+                    "computerName": "[concat(parameters('environmentReference').deployment.env, '-waf')]",
+                    "adminUsername": "[parameters('environmentReference').domain.serviceAccess]",
+                    "adminPassword": "[parameters('environmentReference').domain.serviceAccessPwd]"
+                },
+                "hardwareProfile": {
+                    "vmSize": "Standard_DS1_v2"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "barracudanetworks",
+                        "offer": "waf",
+                        "sku": "byol",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "createOption": "FromImage",
+                        "name": "[concat(parameters('environmentReference').deployment.env, '-waf-osDisk')]",
+                        "managedDisk": {
+                            "storageAccountType": "Standard_LRS"
+                        }
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces', concat(parameters('environmentReference').deployment.env, '-waf-nic'))]"
+                        }
+                    ]
+                },
+                "availabilitySet": {
+                    "id": "[resourceId('Microsoft.Compute/availabilitySets',concat(parameters('environmentReference').deployment.env, '-waf-avSet'))]"
+                },
+                "diagnosticsProfile": {
+                    "bootDiagnostics": {
+                        "enabled": true,
+                        "storageUri": "[reference(resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-operations'), 'Microsoft.Storage/storageAccounts', concat(parameters('environmentReference').deployment.prefix, parameters('environmentReference').deployment.env, 'diagstor')), '2015-06-15').primaryEndpoints['blob']]"
+                    }
+                }
+            },
+            "plan": {
+                "name": "byol",
+                "publisher": "barracudanetworks",
+                "product": "waf"
+            }
+        },
+        {
+            "apiVersion": "2016-04-30-preview",
+            "name": "[concat(parameters('environmentReference').deployment.env, '-ngf')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Compute/virtualMachines",
+            "dependsOn": [
+                "[concat('Microsoft.Network/networkInterfaces/', concat(parameters('environmentReference').deployment.env, '-ngf-nic'))]",
+                "[concat('Microsoft.Compute/availabilitySets/', concat(parameters('environmentReference').deployment.env, '-ngf-avSet'))]"
+            ],
+            "properties": {
+                "osProfile": {
+                    "computerName": "[concat(parameters('environmentReference').deployment.env, '-ngf')]",
+                    "adminUsername": "[parameters('environmentReference').domain.serviceAccess]",
+                    "adminPassword": "[parameters('environmentReference').domain.serviceAccessPwd]",
+                    "customData": "[variables('ngfData')]"
+                },
+                "hardwareProfile": {
+                    "vmSize": "Standard_DS1_v2"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "barracudanetworks",
+                        "offer": "barracuda-ng-firewall",
+                        "sku": "byol",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "createOption": "FromImage",
+                        "name": "[concat(parameters('environmentReference').deployment.env, '-ngf-osDisk')]",
+                        "managedDisk": {
+                            "storageAccountType": "Standard_LRS"
+                        }
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces', concat(parameters('environmentReference').deployment.env, '-ngf-nic'))]"
+                        }
+                    ]
+                },
+                "availabilitySet": {
+                    "id": "[resourceId('Microsoft.Compute/availabilitySets',concat(parameters('environmentReference').deployment.env, '-ngf-avSet'))]"
+                },
+                "diagnosticsProfile": {
+                    "bootDiagnostics": {
+                        "enabled": true,
+                        "storageUri": "[reference(resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-operations'), 'Microsoft.Storage/storageAccounts', concat(parameters('environmentReference').deployment.prefix, parameters('environmentReference').deployment.env, 'diagstor')), '2015-06-15').primaryEndpoints['blob']]"
+                    }
+                }
+            },
+            "plan": {
+                "name": "byol",
+                "publisher": "barracudanetworks",
+                "product": "barracuda-ng-firewall"
+            }
+        },
+        {
+            "apiVersion": "2017-06-01",
+            "name": "[concat(parameters('environmentReference').deployment.env, '-ngf-nic')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Network/networkInterfaces",
+            "dependsOn": [
+                "[concat('Microsoft.Network/loadBalancers/', concat(parameters('environmentReference').deployment.env, '-waf-lb'))]"
+            ],
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig",
+                        "properties": {
+                            "subnet": {
+                                "id": "[variables('subnetRef')]"
+                            },
+                            "privateIPAllocationMethod": "Static",
+                            "privateIPAddress": "[variables('ngfIp')]"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "apiVersion": "2017-06-01",
+            "name": "[concat(parameters('environmentReference').deployment.env, '-waf-nic')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Network/networkInterfaces",
+            "dependsOn": [
+                "[concat('Microsoft.Network/loadBalancers/', concat(parameters('environmentReference').deployment.env, '-waf-lb'))]"
+            ],
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig",
+                        "properties": {
+                            "subnet": {
+                                "id": "[variables('subnetRef')]"
+                            },
+                            "privateIPAllocationMethod": "Static",
+                            "privateIPAddress": "[variables('wafIp')]",
+                            "loadBalancerBackendAddressPools": [
+                                {
+                                    "id": "[concat(variables('loadBalancerID'),'/backendAddressPools/loadBalancerBackEnd')]"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "apiVersion": "2017-06-01",
+            "name": "[concat(parameters('environmentReference').deployment.env, '-waf-ip')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Network/publicIPAddresses",
+            "properties": {
+                "publicIPAllocationMethod": "Static",
+                "dnsSettings": {
+                    "domainNameLabel": "[concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env)]"
+                }
+            }
+        },
+        {
+            "name": "[concat(parameters('environmentReference').deployment.env, '-waf-lb')]",
+            "apiVersion": "2017-06-01",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Network/loadBalancers",
+            "dependsOn": [
+                "[concat('Microsoft.Network/publicIpAddresses/', concat(parameters('environmentReference').deployment.env, '-waf-ip'))]"
+            ],
+            "properties": {
+                "frontendIPConfigurations": [
+                    {
+                        "name": "loadBalancerFrontEnd",
+                        "properties": {
+                            "publicIPAddress": {
+                                "id": "[resourceId('Microsoft.Network/publicIPAddresses/', concat(parameters('environmentReference').deployment.env, '-waf-ip'))]"
+                            }
+                        }
+                    }
+                ],
+                "backendAddressPools": [
+                    {
+                        "Name": "loadBalancerBackEnd"
+                    }
+                ],
+                "loadBalancingRules": [
+                    {
+                        "name": "LBRule8000",
+                        "properties": {
+                            "frontendIPConfiguration": {
+                                "id": "[variables('frontEndIPConfigID')]"
+                            },
+                            "backendAddressPool": {
+                                "id": "[variables('lbPoolID')]"
+                            },
+                            "protocol": "Tcp",
+                            "frontendPort": 8000,
+                            "backendPort": 8000,
+                            "enableFloatingIP": false,
+                            "idleTimeoutInMinutes": 5,
+                            "probe": {
+                                "id": "[variables('lbProbeID')]"
+                            }
+                        }
+                    }
+                ],
+                "probes": [
+                    {
+                        "name": "barracudaprobe",
+                        "properties": {
+                            "protocol": "Http",
+                            "port": 8000,
+                            "IntervalInSeconds": 5,
+                            "numberOfProbes": 2,
+                            "RequestPath": "/"
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

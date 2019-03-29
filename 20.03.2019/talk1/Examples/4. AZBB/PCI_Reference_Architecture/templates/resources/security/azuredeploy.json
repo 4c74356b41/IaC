@@ -1,0 +1,396 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "environmentReference": {
+            "type": "secureObject"
+        },
+        "networkReference": {
+            "type": "array"
+        },
+        "vmReference": {
+            "type": "array"
+        }
+    },
+    "variables": {
+        "managerPort": "443",
+        "heartbeatPort": "4120",
+        "dsmAdminName": "testuser",
+        "dsmAdminPassword": "Test_pass1",
+        "dbName": "dsm",
+        "dbAdminName": "testuser",
+        "dbAdminPassword": "Test_pass1",
+        "vmTDM": "[concat(parameters('environmentReference').deployment.env, '-trendmicro')]",
+        "nicTDM": "[concat(parameters('environmentReference').deployment.env, '-trendmicro-nic')]",
+        "vmQualys": "[concat(parameters('environmentReference').deployment.env, '-qualys')]",
+        "nicQualys": "[concat(parameters('environmentReference').deployment.env, '-qualys-nic')]",
+        "vmLogic": "[concat(parameters('environmentReference').deployment.env, '-alertlogic')]",
+        "nicLogic": "[concat(parameters('environmentReference').deployment.env, '-alertlogic-nic')]",
+        "vmCloudNeeti": "[concat(parameters('environmentReference').deployment.env, '-cloudneeti')]",
+        "nicCloudNeeti": "[concat(parameters('environmentReference').deployment.env, '-cloudneeti-nic')]",
+        "baseUrl": "https://gallery.azure.com/artifact/20151001/trendmicro.deep-security-manager-st-byoldeep-security-manager-byol.1.0.13/Artifacts",
+        "vnetID": "[resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-networking'), 'Microsoft.Network/virtualNetworks', concat(parameters('environmentReference').deployment.env, '-security'))]",
+        "newsqlServerName": "[tolower(concat(parameters('environmentReference').deployment.prefix, parameters('environmentReference').deployment.env, 'sqltdm'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Resources/deployments",
+            "name": "trendMicroSQL",
+            "apiVersion": "2017-05-10",
+            "properties": {
+                "mode": "Incremental",
+                "templateLink": {
+                    "uri": "[concat(variables('baseUrl'), '/database-new.json')]",
+                    "contentVersion": "1.0.0.0"
+                },
+                "parameters": {
+                    "location": {
+                        "value": "[parameters('environmentReference').deployment.location]"
+                    },
+                    "newsqlServerName": {
+                        "value": "[variables('newsqlServerName')]"
+                    },
+                    "existingSQLServerName": {
+                        "value": ""
+                    },
+                    "dbAdminName": {
+                        "value": "[variables('dbAdminName')]"
+                    },
+                    "dbAdminPassword": {
+                        "value": "[variables('dbAdminPassword')]"
+                    },
+                    "sqlDBName": {
+                        "value": "[variables('dbName')]"
+                    }
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Network/networkInterfaces",
+            "name": "[variables('nicTDM')]",
+            "apiVersion": "2015-06-15",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "subnet": {
+                                "id": "[concat(variables('vnetID'), '/subnets/trendmicroDsmSubnet')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "apiVersion": "2016-04-30-preview",
+            "name": "[variables('vmTDM')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Compute/virtualMachines",
+            "plan": {
+                "name": "dxxnbyol",
+                "publisher": "trendmicro",
+                "product": "deep-security-vm-byol"
+            },
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "[parameters('environmentReference').security.securityVmSize]"
+                },
+                "osProfile": {
+                    "computerName": "[variables('vmTDM')]",
+                    "adminUsername": "[parameters('environmentReference').domain.serviceAccess]",
+                    "adminPassword": "[parameters('environmentReference').domain.serviceAccessPwd]",
+                    "linuxConfiguration": {
+                        "disablePasswordAuthentication": false
+                    }
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "trendmicro",
+                        "offer": "deep-security-vm-byol",
+                        "sku": "dxxnbyol",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "name": "[concat(parameters('environmentReference').deployment.env,'-trendmicro-os-disk')]",
+                        "caching": "ReadWrite",
+                        "createOption": "FromImage"
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('nicTDM'))]"
+                        }
+                    ]
+                },
+                "diagnosticsProfile": {
+                    "bootDiagnostics": {
+                        "enabled": true,
+                        "storageUri": "[reference(resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-operations'), 'Microsoft.Storage/storageAccounts', concat(parameters('environmentReference').deployment.prefix, parameters('environmentReference').deployment.env, 'diagstor')), '2015-06-15').primaryEndpoints['blob']]"
+                    }
+                }
+            },
+            "dependsOn": [
+                "[concat('Microsoft.Network/networkInterfaces/', variables('nicTDM'))]"
+            ]
+        },
+        {
+            "apiVersion": "2015-05-01-preview",
+            "name": "[concat(variables('vmTDM'),'/installDSM')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "properties": {
+                "publisher": "Microsoft.OSTCExtensions",
+                "type": "CustomScriptForLinux",
+                "typeHandlerVersion": "1.2",
+                "settings": {
+                    "commandToExecute": "cp ../../config/0.settings /opt/trend/packages/dsm/default/"
+                },
+                "protectedSettings": {
+                    "subscriptionId": "[subscription().subscriptionId]",
+                    "vmName": "[variables('vmTDM')]",
+                    "databaseName": "[variables('dbName')]",
+                    "adminUserName": "[variables('dsmAdminName')]",
+                    "adminPassword": "[variables('dsmAdminPassword')]",
+                    "databaseUserName": "[variables('dbAdminName')]",
+                    "databaseUserPassword": "[variables('dbAdminPassword')]",
+                    "licenseMode": "[parameters('environmentReference').security.tdmLicenseMode]",
+                    "databaseServer": "[reference('trendMicroSQL').outputs.sqlServerFQDN.value]",
+                    "location": "[parameters('environmentReference').deployment.location]",
+                    "managerPort": "[variables('managerPort')]",
+                    "heartbeatPort": "[variables('heartbeatPort')]",
+                    "vmFQDN": "[variables('vmTDM')]",
+                    "databaseOption": "new",
+                    "vmSize": "[parameters('environmentReference').security.securityVmSize]"
+                }
+            },
+            "dependsOn": [
+                "[concat('Microsoft.Compute/virtualMachines/', variables('vmTDM'))]",
+                "[concat('Microsoft.Resources/deployments/', 'trendMicroSQL')]"
+            ]
+        },
+        {
+            "apiVersion": "2015-06-15",
+            "name": "[variables('nicQualys')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Network/networkInterfaces",
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "subnet": {
+                                "id": "[concat(variables('vnetID'), '/subnets/qualysSubnet')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "condition": false,
+            "apiVersion": "2016-04-30-preview",
+            "name": "[variables('vmQualys')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Compute/virtualMachines",
+            "dependsOn": [
+                "[concat('Microsoft.Network/networkInterfaces/', variables('nicQualys'))]"
+            ],
+            "plan": {
+                "name": "qvsa-23",
+                "publisher": "qualysguard",
+                "product": "qualys-virtual-scanner-v23b"
+            },
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "[parameters('environmentReference').security.securityVmSize]"
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('nicQualys'))]"
+                        }
+                    ]
+                },
+                "osProfile": {
+                    "computerName": "[variables('vmQualys')]",
+                    "adminUsername": "[parameters('environmentReference').domain.serviceAccess]",
+                    "adminPassword": "[parameters('environmentReference').domain.serviceAccessPwd]",
+                    "customData": "IyBDT01NRU5UCg=="
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "qualysguard",
+                        "offer": "qualys-virtual-scanner-v23b",
+                        "sku": "qvsa-23",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "caching": "ReadWrite",
+                        "createOption": "FromImage",
+                        "name": "[concat(parameters('environmentReference').deployment.env,'-qualys-os-disk')]"
+                    }
+                },
+                "diagnosticsProfile": {
+                    "bootDiagnostics": {
+                        "enabled": true,
+                        "storageUri": "[reference(resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-operations'), 'Microsoft.Storage/storageAccounts', concat(parameters('environmentReference').deployment.prefix, parameters('environmentReference').deployment.env, 'diagstor')), '2015-06-15').primaryEndpoints['blob']]"
+                    }
+                }
+            }
+        },
+        {
+            "apiVersion": "2015-06-15",
+            "name": "[variables('niclogic')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Network/networkInterfaces",
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "subnet": {
+                                "id": "[concat(variables('vnetID'), '/subnets/alertlogicSubnet')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "condition": false,
+            "apiVersion": "2016-04-30-preview",
+            "name": "[variables('vmlogic')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Compute/virtualMachines",
+            "dependsOn": [
+                "[concat('Microsoft.Network/networkInterfaces/', variables('niclogic'))]"
+            ],
+            "plan": {
+                "name": "20215000100-tmpbyol",
+                "publisher": "alertlogic",
+                "product": "alert-logic-tm"
+            },
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "[parameters('environmentReference').security.securityVmSize]"
+                },
+                "osProfile": {
+                    "computerName": "[variables('vmlogic')]",
+                    "adminUsername": "[parameters('environmentReference').domain.serviceAccess]",
+                    "adminPassword": "[parameters('environmentReference').domain.serviceAccessPwd]"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "alertlogic",
+                        "offer": "alert-logic-tm",
+                        "sku": "20215000100-TMPBYOL",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "name": "[concat(parameters('environmentReference').deployment.env,'-alertlogic-os-disk')]",
+                        "caching": "ReadWrite",
+                        "createOption": "FromImage"
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('niclogic'))]"
+                        }
+                    ]
+                },
+                "diagnosticsProfile": {
+                    "bootDiagnostics": {
+                        "enabled": true,
+                        "storageUri": "[reference(resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-operations'), 'Microsoft.Storage/storageAccounts', concat(parameters('environmentReference').deployment.prefix, parameters('environmentReference').deployment.env, 'diagstor')), '2015-06-15').primaryEndpoints['blob']]"
+                    }
+                }
+            }
+        },
+        {
+            "apiVersion": "2015-06-15",
+            "name": "[variables('nicCloudNeeti')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Network/networkInterfaces",
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "subnet": {
+                                "id": "[concat(variables('vnetID'), '/subnets/cloudneetiSubnet')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "condition": false,
+            "apiVersion": "2016-04-30-preview",
+            "name": "[variables('vmCloudNeeti')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Compute/virtualMachines",
+            "dependsOn": [
+                "[variables('nicCloudNeeti')]"
+            ],
+            "plan": {
+                "name": "enterprise",
+                "publisher": "cloudneeti",
+                "product": "cloudneeti_enterpise"
+            },
+            "properties": {
+                "osProfile": {
+                    "computerName": "[variables('vmCloudNeeti')]",
+                    "adminUsername": "[parameters('environmentReference').domain.serviceAccess]",
+                    "adminPassword": "[parameters('environmentReference').domain.serviceAccessPwd]",
+                    "windowsConfiguration": {
+                        "provisionVmAgent": "true"
+                    }
+                },
+                "hardwareProfile": {
+                    "vmSize": "[parameters('environmentReference').security.securityVmSize]"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "cloudneeti",
+                        "offer": "cloudneeti_enterpise",
+                        "sku": "enterprise",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "createOption": "FromImage",
+                        "name": "[concat(parameters('environmentReference').deployment.env,'-cloudneeti-os-disk')]"
+                    },
+                    "dataDisks": [
+                        {
+                            "createOption": "FromImage",
+                            "lun": 0,
+                            "name": "[concat(parameters('environmentReference').deployment.env,'-cloudneeti-data-disk')]"
+                        }
+                    ]
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('nicCloudNeeti'))]"
+                        }
+                    ]
+                },
+                "diagnosticsProfile": {
+                    "bootDiagnostics": {
+                        "enabled": true,
+                        "storageUri": "[reference(resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-operations'), 'Microsoft.Storage/storageAccounts', concat(parameters('environmentReference').deployment.prefix, parameters('environmentReference').deployment.env, 'diagstor')), '2015-06-15').primaryEndpoints['blob']]"
+                    }
+                }
+            }
+        }
+    ]
+}

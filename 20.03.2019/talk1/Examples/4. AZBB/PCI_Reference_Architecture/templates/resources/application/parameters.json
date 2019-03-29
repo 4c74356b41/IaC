@@ -1,0 +1,69 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "autoscaleDefault": {
+            "value": "1"
+        },
+        "scaleInCPUPercentageThreshold": {
+            "value": "24"
+        },
+        "authenticationType": {
+            "value": "password"
+        },
+        "image": {
+            "value": "2016-Datacenter"
+        },
+        "vmSku": {
+            "value": "Standard_D1_v2"
+        },
+        "osType": {
+            "value": "Windows"
+        },
+        "scaleInInterval": {
+            "value": "1"
+        },
+        "diskTypeIfSmall": {
+            "value": "Managed"
+        },
+        "pipName": {
+            "value": "prv-pip-vmss"
+        },
+        "singlePlacementGroup": {
+            "value": "true"
+        },
+        "autoscaleYesOrNo": {
+            "value": "Yes"
+        },
+        "location": {
+            "value": "South Central US"
+        },
+        "username": {
+            "value": "vmssadmin"
+        },
+        "scaleOutInterval": {
+            "value": "1"
+        },
+        "instanceCount": {
+            "value": "3"
+        },
+        "autoscaleMin": {
+            "value": "1"
+        },
+        "autoscaleMax": {
+            "value": "3"
+        },
+        "pipLabel": {
+            "value": "prv-domainname-vmss"
+        },
+        "password": {
+            "value": "Admin1P@s$w0rd"
+        },
+        "scaleOutCPUPercentageThreshold": {
+            "value": "80"
+        },
+        "vmssName": {
+            "value": "prvvmssnamea"
+        }
+    }
+}

@@ -1,0 +1,75 @@
+{
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "type": "string"
+    },
+    "pipName": {
+      "type": "string"
+    },
+    "pipLabel": {
+      "type": "string"
+    },
+    "lbName": {
+      "type": "string"
+    },
+    "osType": {
+      "type": "string"
+    }
+  },
+  "variables": {
+    "natStartPort": 50000,
+    "natEndPort": 50119,
+    "natBackendPortWindows": 3389,
+    "natBackendPortLinux": 22,
+    "natBackendPort": "[variables(concat('natBackendPort', parameters('osType')))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/loadBalancers",
+      "name": "[parameters('lbName')]",
+      "location": "[parameters('location')]",
+      "apiVersion": "2016-12-01",
+      "properties": {
+        "backendAddressPools": [
+          {
+            "name": "bepool"
+          }
+        ],
+        "inboundNatPools": [
+          {
+            "name": "natpool",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[concat(resourceId('Microsoft.Network/loadBalancers', parameters('lbName')), '/frontendIPConfigurations/loadBalancerFrontEnd')]"
+              },
+              "protocol": "tcp",
+              "frontendPortRangeStart": "[variables('natStartPort')]",
+              "frontendPortRangeEnd": "[variables('natEndPort')]",
+              "backendPort": "[variables('natBackendPort')]"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "loadBalancerBackendAddressPools": {
+      "type": "array",
+      "value": [
+        {
+          "id": "[reference(parameters('lbName'), '2016-12-01').backendAddressPools[0].id]"
+        }
+      ]
+    },
+    "loadBalancerInboundNatPools": {
+      "type": "array",
+      "value": [
+        {
+          "id": "[reference(parameters('lbName'), '2016-12-01').inboundNatPools[0].id]"
+        }
+      ]
+    }
+  }
+}

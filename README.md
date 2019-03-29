@@ -1,7 +1,7 @@
 ## [Moscow Azure Meetup](https://www.meetup.com/Moscow-Cloud-Computing-Meetup/)
 
 This is a repository with code samples, examples, links, slides, etc from the meetups.  
-Each meetup content 
+Each meetup content will be in the respective folder
 
 
 ## Talks

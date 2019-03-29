@@ -1,0 +1,140 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "adminUsername": {
+        "type": "string",
+        "metadata": {
+          "description": "Username for the Virtual Machine."
+        }
+      },
+      "adminPassword": {
+        "type": "securestring",
+        "metadata": {
+          "description": "Password for the Virtual Machine."
+        }
+      }
+    },
+    "variables": {
+      "storageAccountName": "[concat(uniquestring(resourceGroup().id), 'sawinvm')]",
+      "subnetRef": "[resourceId('Microsoft.Network/virtualNetworks/subnets', 'simple-vnet', 'Subnet')]"
+    },
+    "resources": [
+      {"type": "Microsoft.Storage/storageAccounts",
+        "name": "[variables('storageAccountName')]",
+        "location": "[resourceGroup().location]",
+        "apiVersion": "2018-07-01",
+        "sku": {
+          "name": "Standard_LRS"
+        },
+        "kind": "Storage",
+        "properties": {}
+      },
+      {"type": "Microsoft.Network/publicIPAddresses",
+        "name": "jb-vm1-nic1-pip",
+        "location": "[resourceGroup().location]",
+        "apiVersion": "2018-10-01",
+        "properties": {
+          "publicIPAllocationMethod": "Dynamic",
+          "dnsSettings": {
+            "domainNameLabel": "meetup-arm-v1"
+          }
+        }
+      },
+      {"type": "Microsoft.Network/virtualNetworks",
+        "name": "simple-vnet",
+        "location": "[resourceGroup().location]",
+        "apiVersion": "2018-10-01",
+        "properties": {
+          "addressSpace": {
+            "addressPrefixes": [
+              "10.0.0.0/16"
+            ]
+          },
+          "subnets": [
+            {
+              "name": "Subnet",
+              "properties": {
+                "addressPrefix": "10.0.0.0/16"
+              }
+            }
+          ]
+        }
+      },
+      {"type": "Microsoft.Network/networkInterfaces",
+        "name": "jb-vm1-nic1",
+        "location": "[resourceGroup().location]",
+        "apiVersion": "2018-10-01",
+        "dependsOn": [
+          "[resourceId('Microsoft.Network/publicIPAddresses/', 'jb-vm1-nic1-pip')]",
+          "[resourceId('Microsoft.Network/virtualNetworks/', 'simple-vnet')]"
+        ],
+        "properties": {
+          "ipConfigurations": [
+            {
+              "name": "ipconfig1",
+              "properties": {
+                "privateIPAllocationMethod": "Dynamic",
+                "publicIPAddress": {
+                  "id": "[resourceId('Microsoft.Network/publicIPAddresses','jb-vm1-nic1-pip')]"
+                },
+                "subnet": {
+                  "id": "[variables('subnetRef')]"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {"type": "Microsoft.Compute/virtualMachines",
+        "name": "jb-vm1",
+        "location": "[resourceGroup().location]",
+        "apiVersion": "2018-10-01",
+        "dependsOn": [
+          "[resourceId('Microsoft.Storage/storageAccounts/', variables('storageAccountName'))]",
+          "[resourceId('Microsoft.Network/networkInterfaces/', 'jb-vm1-nic1')]"
+        ],
+        "properties": {
+          "hardwareProfile": {
+            "vmSize": "Standard_DS2_V2"
+          },
+          "osProfile": {
+            "computerName": "jb-vm1",
+            "adminUsername": "[parameters('adminUsername')]",
+            "adminPassword": "[parameters('adminPassword')]"
+          },
+          "storageProfile": {
+            "imageReference": {
+              "publisher": "MicrosoftWindowsServer",
+              "offer": "WindowsServer",
+              "sku": "2016-Datacenter",
+              "version": "latest"
+            },
+            "osDisk": {
+              "createOption": "FromImage",
+              "name": "jb-vm1-os"
+            }
+          },
+          "networkProfile": {
+            "networkInterfaces": [
+              {
+                "id": "[resourceId('Microsoft.Network/networkInterfaces','jb-vm1-nic1')]"
+              }
+            ]
+          },
+          "diagnosticsProfile": {
+            "bootDiagnostics": {
+              "enabled": true,
+              "storageUri": "[reference(resourceId('Microsoft.Storage/storageAccounts/', variables('storageAccountName'))).primaryEndpoints.blob]"
+            }
+          }
+        }
+      }
+    ],
+    "outputs": {
+      "hostname": {
+        "type": "string",
+        "value": "[reference('jb-vm1-nic1-pip').dnsSettings.fqdn]"
+      }
+    }
+  }

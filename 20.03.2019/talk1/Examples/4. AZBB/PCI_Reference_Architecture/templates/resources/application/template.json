@@ -1,0 +1,322 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json",
+    "contentVersion": "1.0.0.0",
+    "variables": {
+        "vmssTemplateUri": "[concat(variables('baseTemplateUri'), 'vmss.json')]",
+        "lbLogic": "[variables(concat('lbLogic', parameters('singlePlacementGroup')))]",
+        "diskTypeIfSinglePlacementGrouptrue": "[parameters('diskTypeIfSmall')]",
+        "autoscaleTemplateUri": "[concat(variables('baseTemplateUri'), 'autoscale.json')]",
+        "lbLogicfalse": {
+            "parameters": {},
+            "templateUri": "[concat(variables('baseTemplateUri'), 'null.json')]"
+        },
+        "baseTemplateUri": "[concat(parameters('baseUrl'), '/')]",
+        "diskType": "[variables(concat('diskTypeIfSinglePlacementGroup', parameters('singlePlacementGroup')))]",
+        "saLogic": "[variables(concat('saLogic', variables('diskType')))]",
+        "diskTypeIfSinglePlacementGroupfalse": "Managed",
+        "lbLogictrue": {
+            "parameters": {
+                "osType": {
+                    "value": "[parameters('osType')]"
+                },
+                "pipName": {
+                    "value": "[parameters('pipName')]"
+                },
+                "pipLabel": {
+                    "value": "[parameters('pipLabel')]"
+                },
+                "location": {
+                    "value": "[parameters('location')]"
+                },
+                "lbName": {
+                    "value": "[concat(parameters('vmssName'), 'Lb')]"
+                }
+            },
+            "templateUri": "[concat(variables('baseTemplateUri'), 'lb.json')]"
+        },
+        "saLogicManaged": {
+            "parameters": {},
+            "templateUri": "[concat(variables('baseTemplateUri'), 'null.json')]"
+        },
+        "saLogicUnmanaged": {
+            "parameters": {
+                "vmssName": {
+                    "value": "[parameters('vmssName')]"
+                },
+                "vmSku": {
+                    "value": "[parameters('vmSku')]"
+                },
+                "location": {
+                    "value": "[parameters('location')]"
+                }
+            },
+            "templateUri": "[concat(variables('baseTemplateUri'), 'sa.json')]"
+        },
+        "_comment1": "if singlePlacementGroup is true (aka 'small scale set'), then customers can choose managed or unmanaged; if false (aka 'large scale set'), only managed is allowed",
+        "_comment0": "concat 'lbLogic' with parameters('singlePlacementGroup') to get back the name of a variable containing the template url and parameter set for either deploying the lb or not",
+        "vNetName": "dev-application",
+        "subNetName": "appSubnet1",
+        "vnetID": "[resourceId(concat(parameters('resourceGroupPrefix'), '-', parameters('deploymentPrefix'), '-networking'), 'Microsoft.Network/virtualNetworks', variables('vNetName'))]",
+        "subNetID": "[concat(variables('vnetID'),'/subnets/',variables('subNetName'))]"
+    },
+    "parameters": {
+        "resourceGroupPrefix": {
+            "type": "string"
+        },
+        "deploymentPrefix": {
+            "type": "string"
+        },
+        "autoscaleDefault": {
+            "defaultValue": "1",
+            "type": "string"
+        },
+        "scaleInCPUPercentageThreshold": {
+            "defaultValue": "25",
+            "type": "string"
+        },
+        "authenticationType": {
+            "type": "string",
+            "allowedValues": [
+                "password",
+                "sshPublicKey"
+            ]
+        },
+        "image": {
+            "type": "string"
+        },
+        "instanceCount": {
+            "type": "string"
+        },
+        "osType": {
+            "type": "string",
+            "allowedValues": [
+                "Windows",
+                "Linux"
+            ]
+        },
+        "scaleInInterval": {
+            "defaultValue": "1",
+            "type": "string"
+        },
+        "diskTypeIfSmall": {
+            "defaultValue": "Unmanaged",
+            "type": "string",
+            "allowedValues": [
+                "Managed",
+                "Unmanaged"
+            ]
+        },
+        "pipName": {
+            "defaultValue": "",
+            "type": "string"
+        },
+        "baseUrl": {
+            "defaultValue": "https://gallery.azure.com/artifact/20151001/microsoft.vmss.6.0.2/Artifacts",
+            "type": "string",
+            "metadata": {
+                "artifactsBaseUrl": "Base URL of the VMSS Template gallery package"
+            }
+        },
+        "singlePlacementGroup": {
+            "defaultValue": "true",
+            "type": "string",
+            "allowedValues": [
+                "true",
+                "false"
+            ]
+        },
+        "autoscaleYesOrNo": {
+            "defaultValue": "No",
+            "type": "string",
+            "allowedValues": [
+                "Yes",
+                "No"
+            ]
+        },
+        "location": {
+            "type": "string",
+            "metadata": {
+                "description": "location of resources"
+            }
+        },
+        "username": {
+            "type": "string"
+        },
+        "scaleOutInterval": {
+            "defaultValue": "1",
+            "type": "string"
+        },
+        "vmSku": {
+            "type": "string"
+        },
+        "autoscaleMin": {
+            "defaultValue": "1",
+            "type": "string"
+        },
+        "autoscaleMax": {
+            "defaultValue": "10",
+            "type": "string"
+        },
+        "pipLabel": {
+            "defaultValue": "",
+            "type": "string"
+        },
+        "password": {
+            "defaultValue": "",
+            "type": "securestring"
+        },
+        "scaleOutCPUPercentageThreshold": {
+            "defaultValue": "75",
+            "type": "string"
+        },
+        "vmssName": {
+            "maxLength": 61,
+            "type": "string",
+            "metadata": {
+                "description": "String used as a base for naming resources. Must be 3-61 characters in length."
+            }
+        },
+        "sshPublicKey": {
+            "defaultValue": "",
+            "type": "string"
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Resources/deployments",
+            "name": "lbDep",
+            "apiVersion": "2015-11-01",
+            "properties": {
+                "templateLink": {
+                    "contentVersion": "1.0.0.0",
+                    "uri": "https://paste.ee/r/SnSKM/0"
+                },
+                "mode": "Incremental",
+                "parameters": "[variables('lbLogic').parameters]"
+            }
+        },
+        {
+            "type": "Microsoft.Resources/deployments",
+            "name": "saDep",
+            "apiVersion": "2015-11-01",
+            "properties": {
+                "templateLink": {
+                    "contentVersion": "1.0.0.0",
+                    "uri": "[variables('saLogic').templateUri]"
+                },
+                "mode": "Incremental",
+                "parameters": "[variables('saLogic').parameters]"
+            }
+        },
+        {
+            "properties": {
+                "templateLink": {
+                    "contentVersion": "1.0.0.0",
+                    "uri": "[variables('vmssTemplateUri')]"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                    "username": {
+                        "value": "[parameters('username')]"
+                    },
+                    "vmSku": {
+                        "value": "[parameters('vmSku')]"
+                    },
+                    "authenticationType": {
+                        "value": "[parameters('authenticationType')]"
+                    },
+                    "vmssName": {
+                        "value": "[parameters('vmssName')]"
+                    },
+                    "loadBalancerInboundNatPools": {
+                        "value": "[reference('lbDep').outputs.loadBalancerInboundNatPools.value]"
+                    },
+                    "image": {
+                        "value": "[parameters('image')]"
+                    },
+                    "osDisk": {
+                        "value": "[reference('saDep').outputs.osDisk.value]"
+                    },
+                    "subnetId": {
+                        "value": "[variables('subNetID')]"
+                    },
+                    "singlePlacementGroup": {
+                        "value": "[parameters('singlePlacementGroup')]"
+                    },
+                    "instanceCount": {
+                        "value": "[parameters('instanceCount')]"
+                    },
+                    "ipConfigName": {
+                        "value": "[concat(parameters('vmssName'), 'IpConfig')]"
+                    },
+                    "location": {
+                        "value": "[parameters('location')]"
+                    },
+                    "nicName": {
+                        "value": "[concat(parameters('vmssName'), 'Nic')]"
+                    },
+                    "password": {
+                        "value": "[parameters('password')]"
+                    },
+                    "loadBalancerBackendAddressPools": {
+                        "value": "[reference('lbDep').outputs.loadBalancerBackendAddressPools.value]"
+                    },
+                    "sshPublicKey": {
+                        "value": "[parameters('sshPublicKey')]"
+                    }
+                }
+            },
+            "type": "Microsoft.Resources/deployments",
+            "name": "vmssDep",
+            "apiVersion": "2015-11-01",
+            "dependsOn": [
+                "lbDep",
+                "saDep"
+            ]
+        },
+        {
+            "properties": {
+                "templateLink": {
+                    "contentVersion": "1.0.0.0",
+                    "uri": "[variables('autoscaleTemplateUri')]"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                    "autoscaleDefault": {
+                        "value": "[parameters('autoscaleDefault')]"
+                    },
+                    "scaleOutInterval": {
+                        "value": "[parameters('scaleOutInterval')]"
+                    },
+                    "scaleOutCPUPercentageThreshold": {
+                        "value": "[parameters('scaleOutCPUPercentageThreshold')]"
+                    },
+                    "scaleInCPUPercentageThreshold": {
+                        "value": "[parameters('scaleInCPUPercentageThreshold')]"
+                    },
+                    "autoscaleMax": {
+                        "value": "[parameters('autoscaleMax')]"
+                    },
+                    "autoscaleMin": {
+                        "value": "[parameters('autoscaleMin')]"
+                    },
+                    "baseTemplateUri": {
+                        "value": "[variables('baseTemplateUri')]"
+                    },
+                    "autoscaleYesOrNo": {
+                        "value": "[parameters('autoscaleYesOrNo')]"
+                    },
+                    "vmssId": {
+                        "value": "[reference('vmssDep').outputs.vmssId.value]"
+                    },
+                    "scaleInInterval": {
+                        "value": "[parameters('scaleInInterval')]"
+                    }
+                }
+            },
+            "type": "Microsoft.Resources/deployments",
+            "name": "autoscaleDep",
+            "apiVersion": "2015-11-01"
+        }
+    ]
+}

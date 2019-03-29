@@ -1,0 +1,174 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "bossObject": {
+            "type": "secureObject"
+        },
+        "environmentReference": {
+            "type": "secureObject"
+        }
+    },
+    "variables": {
+        "Dummy": [],
+        "RDP": [
+            {
+                "name": "RDP-default",
+                "properties": {
+                    "protocol": "Tcp",
+                    "sourcePortRange": "*",
+                    "destinationPortRange": "3389",
+                    "sourceAddressPrefix": "*",
+                    "destinationAddressPrefix": "*",
+                    "access": "Allow",
+                    "priority": 1000,
+                    "direction": "Inbound"
+                }
+            }
+        ],
+        "SSH": [
+            {
+                "name": "SSH-default",
+                "properties": {
+                    "protocol": "Tcp",
+                    "sourcePortRange": "*",
+                    "destinationPortRange": "22",
+                    "sourceAddressPrefix": "10.0.0.0/24",
+                    "destinationAddressPrefix": "*",
+                    "access": "Allow",
+                    "priority": 1010,
+                    "direction": "Inbound"
+                }
+            }
+        ],
+        "FTP": [
+            {
+                "name": "FTP-default",
+                "properties": {
+                    "protocol": "Tcp",
+                    "sourcePortRange": "*",
+                    "destinationPortRange": "21",
+                    "sourceAddressPrefix": "*",
+                    "destinationAddressPrefix": "*",
+                    "access": "Allow",
+                    "priority": 1020,
+                    "direction": "Inbound"
+                }
+            }
+        ],
+        "HTTP": [
+            {
+                "name": "HTTP-default",
+                "properties": {
+                    "protocol": "Tcp",
+                    "sourcePortRange": "*",
+                    "destinationPortRange": "80",
+                    "sourceAddressPrefix": "*",
+                    "destinationAddressPrefix": "*",
+                    "access": "Allow",
+                    "priority": 1030,
+                    "direction": "Inbound"
+                }
+            }
+        ],
+        "HTTPS": [
+            {
+                "name": "HTTPS-default",
+                "properties": {
+                    "protocol": "Tcp",
+                    "sourcePortRange": "*",
+                    "destinationPortRange": "443",
+                    "sourceAddressPrefix": "*",
+                    "destinationAddressPrefix": "*",
+                    "access": "Allow",
+                    "priority": 1040,
+                    "direction": "Inbound"
+                }
+            }
+        ],
+        "paasPrefix": "[concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env)]",
+        "omsName": "[concat(variables('paasPrefix'), '-oms')]"
+    },
+    "resources": [
+        {
+            "apiVersion": "2016-09-01",
+            "name": "[concat('iterator-', parameters('bossObject').subnetName, '-0')]",
+            "type": "Microsoft.Resources/deployments",
+            "properties": {
+                "mode": "Incremental",
+                "templateLink": {
+                    "uri": "[concat(parameters('environmentReference').deployment.buildingBlocksEndpoint, 'common/nested_iterator.json')]"
+                },
+                "parameters": {
+                    "source": {
+                        "value": "[parameters('bossObject').CustomRules]"
+                    }
+                }
+            }
+        },
+        {
+            "apiVersion": "2016-09-01",
+            "name": "[concat('iterator-', parameters('bossObject').subnetName, '-', copyIndex(1))]",
+            "type": "Microsoft.Resources/deployments",
+            "copy": {
+                "name": "iterator",
+                "count": "[length(parameters('bossObject').Firewall)]",
+                "mode": "Serial"
+            },
+            "properties": {
+                "mode": "Incremental",
+                "templateLink": {
+                    "uri": "[concat(parameters('environmentReference').deployment.buildingBlocksEndpoint, 'common/nested_iterator.json')]"
+                },
+                "parameters": {
+                    "source": {
+                        "value": "[variables(parameters('bossObject').Firewall[copyIndex()])]"
+                    },
+                    "state": {
+                        "value": "[reference(concat('iterator-', parameters('bossObject').subnetName, '-', copyIndex())).outputs.collection.value]"
+                    }
+                }
+            }
+        },
+        {
+            "apiVersion": "2016-03-30",
+            "name": "[concat(parameters('environmentReference').deployment.env, '-', parameters('bossObject').subnetName, '-nsg')]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "properties": {
+                "securityRules": "[reference(concat('iterator-', parameters('bossObject').subnetName, '-', length(parameters('bossObject').Firewall))).outputs.collection.value]"
+            },
+            "resources": [
+                {
+                    "type": "providers/diagnosticSettings",
+                    "name": "Microsoft.Insights/service",
+                    "dependsOn": [
+                        "[concat('Microsoft.Network/networkSecurityGroups/',concat(parameters('environmentReference').deployment.env, '-', parameters('bossObject').subnetName, '-nsg'))]"
+                    ],
+                    "apiVersion": "2017-05-01-preview",
+                    "properties": {
+                        "WorkspaceId": "[resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-operations'),'microsoft.operationalinsights/workspaces',variables('omsName'))]",
+                        "logs": [
+                            {
+                                "category": "NetworkSecurityGroupEvent",
+                                "enabled": true,
+                                "retentionPolicy": {
+                                    "days": 7,
+                                    "enabled": true
+                                }
+                            },
+                            {
+                                "category": "NetworkSecurityGroupRuleCounter",
+                                "enabled": true,
+                                "retentionPolicy": {
+                                    "days": 7,
+                                    "enabled": true
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+}

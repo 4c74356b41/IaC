@@ -1,0 +1,163 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "source": {
+            "type": "string"
+        },
+        "state": {
+            "type": "array",
+            "defaultValue": []
+        },
+        "oms": {
+            "type": "secureObject"
+        },
+        "environmentReference": {
+            "type": "secureObject"
+        }
+    },
+    "variables": {
+        "paasPrefix": "[concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env)]",
+        "kvUri": "[concat('https://', variables('paasPrefix'), '-kv.vault.azure.net/')]",
+        "kvId": "[resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-operations'), 'Microsoft.KeyVault/vaults', concat(variables('paasPrefix'), '-kv'))]",
+        "empty": [],
+        "Encryption": [
+            {
+                "name": "encryption",
+                "properties": {
+                    "publisher": "Microsoft.Azure.Security",
+                    "type": "AzureDiskEncryption",
+                    "typeHandlerVersion": "2.1",
+                    "autoUpgradeMinorVersion": true,
+                    "settings": {
+                        "EncryptionOperation": "EnableEncryption",
+                        "KekVaultResourceId": "[variables('kvId')]",
+                        "KeyVaultResourceId": "[variables('kvId')]",
+                        "KeyVaultURL": "[variables('kvUri')]",
+                        "KeyEncryptionKeyURL": "[concat(variables('kvUri'), 'keys/ContosoMasterKey/', parameters('environmentReference').deployment.keyVersion)]",
+                        "KeyEncryptionAlgorithm": "RSA-OAEP",
+                        "VolumeType": "All"
+                    }
+                }
+            }
+        ],
+        "OMS": [
+            {
+                "name": "omsAgent",
+                "properties": {
+                    "publisher": "Microsoft.EnterpriseCloud.Monitoring",
+                    "type": "MicrosoftMonitoringAgent",
+                    "typeHandlerVersion": "1.0",
+                    "autoUpgradeMinorVersion": true,
+                    "settings": {
+                        "workspaceId": "[parameters('oms').Id]"
+                    },
+                    "protectedSettings": {
+                        "workspaceKey": "[parameters('oms').Key]"
+                    }
+                }
+            }
+        ],
+        "IIS": [
+            {
+                "name": "Microsoft.Powershell.DSC",
+                "properties": {
+                    "publisher": "Microsoft.Powershell",
+                    "type": "DSC",
+                    "typeHandlerVersion": "2.19",
+                    "autoUpgradeMinorVersion": true,
+                    "settings": {
+                        "configuration": {
+                            "url": "[concat(parameters('environmentReference').deployment.buildingBlocksEndpoint, 'packages/iis-webdeploy.zip')]",
+                            "script": "iis-webdeploy.ps1",
+                            "function": "iis-webdeploy"
+                        },
+                        "configurationArguments": {
+                            "domainName": "[parameters('environmentReference').domain.name]",
+                            "deploymentPrefix": "[parameters('environmentReference').deployment.env]",
+                            "sqlEndpoint": "[concat(parameters('environmentReference').deployment.env, '-sql-ag.', parameters('environmentReference').domain.name)]",
+                            "certThumb": "[parameters('environmentReference').deployment.certificateThumbprint]",
+                            "endpoint": "[substring(parameters('environmentReference').deployment.buildingBlocksEndpoint, 8, 24)]"
+                        }
+                    },
+                    "protectedSettings": {
+                        "configurationArguments": {
+                            "adminCreds": {
+                                "userName": "[parameters('environmentReference').domain.serviceAccess]",
+                                "password": "[parameters('environmentReference').domain.serviceAccessPwd]"
+                            },
+                            "certPwd": "[parameters('environmentReference').deployment.certificatePassword]"
+                        }
+                    }
+                }
+            }
+        ],
+        "ServiceMap": [
+            {
+                "name": "serviceMap",
+                "properties": {
+                    "publisher": "Microsoft.Azure.Monitoring.DependencyAgent",
+                    "type": "DependencyAgentWindows",
+                    "typeHandlerVersion": "9.1",
+                    "autoUpgradeMinorVersion": true
+                }
+            }
+        ],
+        "NetworkWatcher": [
+            {
+                "name": "azureNetworkWatcher",
+                "properties": {
+                    "publisher": "Microsoft.Azure.NetworkWatcher",
+                    "type": "NetworkWatcherAgentWindows",
+                    "typeHandlerVersion": "1.4",
+                    "autoUpgradeMinorVersion": true
+                }
+            }
+        ],
+        "MSTrendMicro": [
+            {
+                "name": "TrendMicro.DeepSecurity",
+                "properties": {
+                    "publisher": "TrendMicro.DeepSecurity",
+                    "type": "TrendMicroDSA",
+                    "typeHandlerVersion": "10.0",
+                    "autoUpgradeMinorVersion": true,
+                    "settings": {
+                        "DSMname": "10.3.3.4",
+                        "DSMport": "4120"
+                    },
+                    "protectedSettings": {
+                        "tenantID": "NA",
+                        "tenantPassword": "NA"
+                    }
+                }
+            }
+        ],
+        "LinuxTrendMicro": [
+            {
+                "name": "TrendMicro.DeepSecurity",
+                "properties": {
+                    "publisher": "TrendMicro.DeepSecurity",
+                    "type": "TrendMicroDSALinux",
+                    "typeHandlerVersion": "10.0",
+                    "autoUpgradeMinorVersion": true,
+                    "settings": {
+                        "DSMname": "10.3.3.4",
+                        "DSMport": "4120"
+                    },
+                    "protectedSettings": {
+                        "tenantID": "NA",
+                        "tenantPassword": "NA"
+                    }
+                }
+            }
+        ]
+    },
+    "resources": [],
+    "outputs": {
+        "collection": {
+            "type": "array",
+            "value": "[concat(parameters('state'), variables(parameters('source')))]"
+        }
+    }
+}

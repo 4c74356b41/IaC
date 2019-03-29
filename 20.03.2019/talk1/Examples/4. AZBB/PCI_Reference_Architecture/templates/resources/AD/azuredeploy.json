@@ -1,0 +1,311 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentReference": {
+      "type": "secureObject"
+    },
+    "networkReference": {
+      "type": "array"
+    },
+    "vmReference": {
+      "type": "array"
+    }
+  },
+  "variables": {
+    "addressSpace": "[parameters('networkReference')[2].subnets[0].addressSpacePrefix]",
+    "substring": "[substring(variables('addressSpace'), 0, sub(length(variables('addressSpace')), 4))]",
+    "adPDCNicIPAddress": "[concat(variables('substring'), 4)]",
+    "adBDCNicIPAddress": "[concat(variables('substring'), 5)]",
+    "vnetID": "[resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-networking'), 'Microsoft.Network/virtualNetworks', concat(parameters('environmentReference').deployment.env, '-security'))]",
+    "adSubnetRef": "[concat(variables('vnetID'),'/subnets/domainSubnet')]",
+    "network": "[last(parameters('networkReference'))]",
+    "addressSpaceDataTier": "[last(variables('network').subnets).addressSpacePrefix]",
+    "substringDataTier": "[substring(variables('addressSpaceDataTier'), 0, sub(length(variables('addressSpace')), 4))]",
+    "listenerIp": "[concat(variables('substringDataTier'), 10)]",
+    "omsName": "[concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-oms')]",
+    "vmNames": [
+      "[concat(parameters('environmentReference').deployment.env, '-PDC-VM')]",
+      "[concat(parameters('environmentReference').deployment.env, '-BDC-VM')]"
+    ]
+  },
+  "resources": [
+    {
+      "name": "[concat(parameters('environmentReference').deployment.env, '-DC-avSet')]",
+      "type": "Microsoft.Compute/availabilitySets",
+      "apiVersion": "2016-04-30-preview",
+      "location": "[parameters('environmentReference').deployment.location]",
+      "properties": {
+        "platformFaultDomainCount": 2,
+        "platformUpdateDomainCount": 5,
+        "managed": true
+      }
+    },
+    {
+      "name": "[concat(parameters('environmentReference').deployment.env, '-PDC-nic')]",
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2016-10-01",
+      "location": "[parameters('environmentReference').deployment.location]",
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Static",
+              "privateIPAddress": "[variables('adPDCNicIPAddress')]",
+              "subnet": {
+                "id": "[variables('adSubnetRef')]"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "[concat(parameters('environmentReference').deployment.env, '-BDC-nic')]",
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2016-10-01",
+      "location": "[parameters('environmentReference').deployment.location]",
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Static",
+              "privateIPAddress": "[variables('adBDCNicIPAddress')]",
+              "subnet": {
+                "id": "[variables('adSubnetRef')]"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "[concat(parameters('environmentReference').deployment.env, '-PDC-VM')]",
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2016-04-30-preview",
+      "location": "[parameters('environmentReference').deployment.location]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces',concat(parameters('environmentReference').deployment.env, '-PDC-nic'))]",
+        "[resourceId('Microsoft.Compute/availabilitySets', concat(parameters('environmentReference').deployment.env, '-DC-avSet'))]"
+      ],
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters('environmentReference').domain.domainVmSize]"
+        },
+        "availabilitySet": {
+          "id": "[resourceId('Microsoft.Compute/availabilitySets', concat(parameters('environmentReference').deployment.env, '-DC-avSet'))]"
+        },
+        "osProfile": {
+          "computerName": "[concat(parameters('environmentReference').deployment.env, '-PDC-VM')]",
+          "adminUsername": "[parameters('environmentReference').domain.serviceAccess]",
+          "adminPassword": "[parameters('environmentReference').domain.serviceAccessPwd]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "MicrosoftWindowsServer",
+            "offer": "WindowsServer",
+            "sku": "2016-Datacenter-smalldisk",
+            "version": "latest"
+          },
+          "osDisk": {
+            "caching": "ReadWrite",
+            "createOption": "FromImage",
+            "name": "[concat(parameters('environmentReference').deployment.env, '-PDC-OS')]"
+          },
+          "dataDisks": [
+            {
+              "caching": "None",
+              "diskSizeGB": "[parameters('environmentReference').domain.diskSize]",
+              "lun": 0,
+              "createOption": "Empty",
+              "name": "[concat(parameters('environmentReference').deployment.env, '-PDC-DATA')]"
+            }
+          ]
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces',concat(parameters('environmentReference').deployment.env, '-PDC-nic'))]"
+            }
+          ]
+        },
+        "diagnosticsProfile": {
+          "bootDiagnostics": {
+            "enabled": true,
+            "storageUri": "[reference(resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-operations'), 'Microsoft.Storage/storageAccounts', concat(parameters('environmentReference').deployment.prefix, parameters('environmentReference').deployment.env, 'diagstor')), '2015-06-15').primaryEndpoints['blob']]"
+          }
+        }
+      },
+      "resources": [
+        {
+          "name": "createPrimaryDomainController",
+          "type": "extensions",
+          "apiVersion": "2016-03-30",
+          "location": "[parameters('environmentReference').deployment.location]",
+          "dependsOn": [
+            "[resourceId('Microsoft.Compute/virtualMachines', concat(parameters('environmentReference').deployment.env, '-PDC-VM'))]"
+          ],
+          "properties": {
+            "publisher": "Microsoft.Powershell",
+            "type": "DSC",
+            "typeHandlerVersion": "2.19",
+            "autoUpgradeMinorVersion": true,
+            "settings": {
+              "configuration": {
+                "url": "[concat(parameters('environmentReference').deployment.buildingBlocksEndpoint, 'packages/ad-domain.zip')]",
+                "script": "ad-domain.ps1",
+                "function": "ad-createPDC"
+              },
+              "configurationArguments": {
+                "domainName": "[parameters('environmentReference').domain.name]",
+                "deploymentPrefix": "[parameters('environmentReference').deployment.env]",
+                "SqlAlwaysOnAvailabilityGroupListenerIp": "[variables('listenerIp')]"
+              }
+            },
+            "protectedSettings": {
+              "configurationArguments": {
+                "adminCreds": {
+                  "userName": "[parameters('environmentReference').domain.serviceAccess]",
+                  "password": "[parameters('environmentReference').domain.serviceAccessPwd]"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "[concat(parameters('environmentReference').deployment.env, '-BDC-VM')]",
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2016-04-30-preview",
+      "location": "[parameters('environmentReference').deployment.location]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces',concat(parameters('environmentReference').deployment.env, '-BDC-nic'))]",
+        "[resourceId('Microsoft.Compute/availabilitySets', concat(parameters('environmentReference').deployment.env, '-DC-avSet'))]"
+      ],
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters('environmentReference').domain.domainVmSize]"
+        },
+        "availabilitySet": {
+          "id": "[resourceId('Microsoft.Compute/availabilitySets', concat(parameters('environmentReference').deployment.env, '-DC-avSet'))]"
+        },
+        "osProfile": {
+          "computerName": "[concat(parameters('environmentReference').deployment.env, '-BDC-VM')]",
+          "adminUsername": "[parameters('environmentReference').domain.serviceAccess]",
+          "adminPassword": "[parameters('environmentReference').domain.serviceAccessPwd]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "MicrosoftWindowsServer",
+            "offer": "WindowsServer",
+            "sku": "2016-Datacenter-smalldisk",
+            "version": "latest"
+          },
+          "osDisk": {
+            "caching": "ReadWrite",
+            "createOption": "FromImage",
+            "name": "[concat(parameters('environmentReference').deployment.env, '-BDC-OS')]"
+          },
+          "dataDisks": [
+            {
+              "caching": "None",
+              "diskSizeGB": "[parameters('environmentReference').domain.diskSize]",
+              "lun": 0,
+              "createOption": "Empty",
+              "name": "[concat(parameters('environmentReference').deployment.env, '-BDC-DATA')]"
+            }
+          ]
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces',concat(parameters('environmentReference').deployment.env, '-BDC-nic'))]"
+            }
+          ]
+        },
+        "diagnosticsProfile": {
+          "bootDiagnostics": {
+            "enabled": true,
+            "storageUri": "[reference(resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-operations'), 'Microsoft.Storage/storageAccounts', concat(parameters('environmentReference').deployment.prefix, parameters('environmentReference').deployment.env, 'diagstor')), '2015-06-15').primaryEndpoints['blob']]"
+          }
+        }
+      },
+      "resources": [
+        {
+          "name": "createSecondaryDomainController",
+          "type": "extensions",
+          "apiVersion": "2016-03-30",
+          "location": "[parameters('environmentReference').deployment.location]",
+          "dependsOn": [
+            "[resourceId('Microsoft.Compute/virtualMachines', concat(parameters('environmentReference').deployment.env, '-BDC-VM'))]"
+          ],
+          "properties": {
+            "publisher": "Microsoft.Powershell",
+            "type": "DSC",
+            "typeHandlerVersion": "2.19",
+            "autoUpgradeMinorVersion": true,
+            "settings": {
+              "configuration": {
+                "url": "[concat(parameters('environmentReference').deployment.buildingBlocksEndpoint, 'packages/ad-domain.zip')]",
+                "script": "ad-domain.ps1",
+                "function": "ad-createBDC"
+              },
+              "configurationArguments": {
+                "domainName": "[parameters('environmentReference').domain.name]",
+                "DNSServer": "[variables('adPDCNicIPAddress')]"
+              }
+            },
+            "protectedSettings": {
+              "configurationArguments": {
+                "adminCreds": {
+                  "userName": "[parameters('environmentReference').domain.serviceAccess]",
+                  "password": "[parameters('environmentReference').domain.serviceAccessPwd]"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "[concat(variables('vmNames')[copyIndex()], '-nested')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2017-05-10",
+      "dependsOn": [
+        "[resourceId('Microsoft.Compute/virtualMachines/extensions', concat(parameters('environmentReference').deployment.env, '-PDC-VM'), 'createPrimaryDomainController')]",
+        "[resourceId('Microsoft.Compute/virtualMachines/extensions', concat(parameters('environmentReference').deployment.env, '-BDC-VM'), 'createSecondaryDomainController')]"
+      ],
+      "copy": {
+        "name": "extensions",
+        "count": "[length(variables('vmNames'))]"
+      },
+      "properties": {
+        "mode": "Incremental",
+        "templateLink": {
+          "uri": "[concat(parameters('environmentReference').deployment.buildingBlocksEndpoint, 'application/nested_extensions.json')]",
+          "contentVersion": "1.0.0.0"
+        },
+        "parameters": {
+          "environmentReference": {
+            "value": "[parameters('environmentReference')]"
+          },
+          "bossObject": {
+            "value": {
+              "vmName": "[variables('vmNames')[copyIndex()]]",
+              "extensions": "[parameters('environmentReference').domain.domainVmExtensions]"
+            }
+          },
+          "oms": {
+            "value": {
+              "Id": "[if(contains(parameters('environmentReference').domain.domainVmExtensions, 'OMS'), reference(resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-operations'),'microsoft.operationalinsights/workspaces',variables('omsName')), '2015-03-20').customerId, 'bogus')]",
+              "Key": "[if(contains(parameters('environmentReference').domain.domainVmExtensions, 'OMS'), listKeys(resourceId(concat(parameters('environmentReference').deployment.prefix, '-', parameters('environmentReference').deployment.env, '-operations'),'microsoft.operationalinsights/workspaces',variables('omsName')), '2015-03-20').primarySharedKey, 'bogus')]"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

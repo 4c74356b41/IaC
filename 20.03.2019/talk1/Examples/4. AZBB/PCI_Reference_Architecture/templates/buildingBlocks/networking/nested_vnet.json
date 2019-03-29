@@ -1,0 +1,82 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "bossObject": {
+            "type": "secureObject"
+        },
+        "dnsSettings": {
+            "type": "array"
+        },
+        "environmentReference": {
+            "type": "secureObject"
+        }
+    },
+    "variables": {
+        "dnsForDomain": "[concat(parameters('dnsSettings'), variables('internetDNS'))]",
+        "internetDNS": [
+            "168.63.129.16"
+        ]
+
+    },
+    "resources": [
+        {
+            "apiVersion": "2016-03-30",
+            "name": "[concat(parameters('environmentReference').deployment.env, '-', parameters('bossObject').name)]",
+            "location": "[parameters('environmentReference').deployment.location]",
+            "type": "Microsoft.Network/virtualNetworks",
+            "dependsOn": [
+                "deployNSGs"
+            ],
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "[parameters('bossObject').addressSpacePrefix]"
+                    ]
+                },
+                "dhcpOptions": {
+                    "dnsServers": "[if(equals(parameters('bossObject').name, 'security'), variables('dnsForDomain'), parameters('dnsSettings'))]"
+                },
+                "copy": [
+                    {
+                        "name": "subnets",
+                        "count": "[length(parameters('bossObject').subnets)]",
+                        "input": {
+                            "name": "[parameters('bossObject').subnets[copyIndex('subnets')].subnetname]",
+                            "properties": {
+                                "addressPrefix": "[parameters('bossObject').subnets[copyIndex('subnets')].addressSpacePrefix]",
+                                "networkSecurityGroup": {
+                                    "id": "[resourceId('Microsoft.Network/networkSecurityGroups', concat(parameters('environmentReference').deployment.env, '-', parameters('bossObject').subnets[copyIndex('subnets')].subnetName, '-nsg'))]"
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "apiVersion": "2016-09-01",
+            "name": "[concat('deployNSG-', parameters('bossObject').name, copyIndex())]",
+            "type": "Microsoft.Resources/deployments",
+            "copy": {
+                "name": "deployNSGs",
+                "count": "[length(parameters('bossObject').subnets)]"
+            },
+            "properties": {
+                "mode": "Incremental",
+                "templateLink": {
+                    "uri": "[concat(parameters('environmentReference').deployment.buildingBlocksEndpoint, 'networking/nested_nsg.json')]",
+                    "contentVersion": "1.0.0.0"
+                },
+                "parameters": {
+                    "bossObject": {
+                        "value": "[parameters('bossObject').subnets[copyIndex()]]"
+                    },
+                    "environmentReference": {
+                        "value": "[parameters('environmentReference')]"
+                    }
+                }
+            }
+        }
+    ]
+}
